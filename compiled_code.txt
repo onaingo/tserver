@@ -1,0 +1,412 @@
+==== FILE STRUCTURE ====
+.env
+.gitignore
+combineFiles.js
+compiled_code.txt
+fnftContracts.txt
+package-lock.json
+package.json
+readme.md
+scripts/
+  FetchMetadata.js
+  nftContractABI.json
+  tokenLogicABI.json
+server.js
+tests/
+  testFetchId.js
+  testFetchMetadata.js
+
+==== CODE ====
+
+==== START OF FILE: .env ====
+ETHERSCAN_API_KEY=TC76RQYGEBJY46GNUV14WZXU3IV6W27HEW
+ALCHEMY_URL=https://eth-sepolia.g.alchemy.com/v2/GXSpgpC-Ys9j06-f8vIu-OxBR0AjhAmZ
+==== END OF FILE: .env ====
+
+==== START OF FILE: .gitignore ====
+#credentials
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# production
+/build
+
+# testing
+/tests
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+==== END OF FILE: .gitignore ====
+
+==== START OF FILE: combineFiles.js ====
+const fs = require('fs');
+const path = require('path');
+
+// Files and folders to ignore
+const ignoredDirectories = ['node_modules', 'dist', '.git', 'public', 'images', 'videos'];
+const ignoredFiles = ['package-lock.json', 'yarn.lock'];
+
+const outputFile = 'compiled_code.txt';
+
+// Helper function to get all files in a directory recursively
+const getAllFiles = (dirPath, arrayOfFiles) => {
+    const files = fs.readdirSync(dirPath);
+
+    arrayOfFiles = arrayOfFiles || [];
+
+    files.forEach(file => {
+        if (fs.statSync(path.join(dirPath, file)).isDirectory()) {
+            if (!ignoredDirectories.includes(file)) {
+                arrayOfFiles = getAllFiles(path.join(dirPath, file), arrayOfFiles);
+            }
+        } else {
+            if (!ignoredFiles.includes(file) && !file.endsWith('.png') && !file.endsWith('.jpg') && !file.endsWith('.webp') && !file.endsWith('.mp4')) {
+                arrayOfFiles.push(path.join(dirPath, file));
+            }
+        }
+    });
+
+    return arrayOfFiles;
+};
+
+// Helper function to write the file structure
+const writeFileStructure = (dirPath, prefix = '') => {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+    entries.forEach(entry => {
+        if (ignoredDirectories.includes(entry.name)) return;
+
+        const fullPath = path.join(dirPath, entry.name);
+        const isDirectory = entry.isDirectory();
+
+        fs.appendFileSync(outputFile, `${prefix}${entry.name}${isDirectory ? '/' : ''}\n`);
+
+        if (isDirectory) {
+            writeFileStructure(fullPath, prefix + '  ');
+        }
+    });
+};
+
+// Function to combine all files into a single text file
+const compileCode = () => {
+    const rootPath = path.join(__dirname);
+    const files = getAllFiles(rootPath);
+
+    // Clear the output file
+    fs.writeFileSync(outputFile, '');
+
+    // Write the file structure
+    fs.appendFileSync(outputFile, '==== FILE STRUCTURE ====\n');
+    writeFileStructure(rootPath);
+    fs.appendFileSync(outputFile, '\n==== CODE ====\n');
+
+    // Combine all file contents
+    files.forEach(file => {
+        const fileContent = fs.readFileSync(file, 'utf8');
+        const relativePath = path.relative(__dirname, file);
+
+        fs.appendFileSync(outputFile, `\n==== START OF FILE: ${relativePath} ====\n`);
+        fs.appendFileSync(outputFile, fileContent);
+        fs.appendFileSync(outputFile, `\n==== END OF FILE: ${relativePath} ====\n`);
+    });
+
+    console.log(`All files have been compiled into ${outputFile}`);
+};
+
+compileCode();
+
+==== END OF FILE: combineFiles.js ====
+
+==== START OF FILE: fnftContracts.txt ====
+0x9FEC9c8315dA365a301F9Fe4DedF446191B3a21e
+0xaA0914B1d042772a81c138Afb6F3967c4BC927E3
+==== END OF FILE: fnftContracts.txt ====
+
+==== START OF FILE: package.json ====
+{
+  "dependencies": {
+    "axios": "^1.7.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
+    "express": "^4.19.2"
+  }
+}
+
+==== END OF FILE: package.json ====
+
+==== START OF FILE: readme.md ====
+# start the server
+npm start
+==== END OF FILE: readme.md ====
+
+==== START OF FILE: scripts\FetchMetadata.js ====
+const { ethers } = require('ethers');
+const fs = require('fs');
+const axios = require('axios');
+require('dotenv').config();
+
+// Load the ABI from the tokenLogicABI.json file
+const tokenLogicAbi = JSON.parse(fs.readFileSync('./scripts/tokenLogicABI.json', 'utf8'));
+const nftContractAbi = JSON.parse(fs.readFileSync('./scripts/nftContractABI.json', 'utf8'));
+
+async function fetchFNFTMetadata(contractAddress) {
+    const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
+    const tokenContract = new ethers.Contract(contractAddress, tokenLogicAbi, provider);
+
+    try {
+        const tokenId = await tokenContract.id();
+        const nftContractAddress = await tokenContract.token();
+        const name = await tokenContract.name();
+        const symbol = await tokenContract.symbol();
+
+        // Interact with the NFT contract to get the contractURI
+        const nftContract = new ethers.Contract(nftContractAddress, nftContractAbi, provider);
+        let ipfsUrl = 'Not available';
+
+        try {
+            const contractUri = await nftContract.contractURI();
+            const metadataResponse = await axios.get(contractUri);
+            ipfsUrl = metadataResponse.data.image || 'Not available';
+        } catch (err) {
+            console.error('Error fetching IPFS URL:', err);
+        }
+
+        const localImage = `./src/images/${symbol}.webp`;
+        const localVideo = `./src/NFT-videos/${symbol}.mp4`;
+
+        return {
+            id: tokenId.toString(),
+            name,
+            symbol,
+            tokenContractAddress: contractAddress,
+            nftContractAddress,
+            ipfsUrl,
+            localImage,
+            localVideo,
+        };
+    } catch (error) {
+        console.error('Error fetching F-NFT metadata:', error);
+        return null;
+    }
+}
+
+module.exports = fetchFNFTMetadata;
+
+==== END OF FILE: scripts\FetchMetadata.js ====
+
+==== START OF FILE: scripts\nftContractABI.json ====
+[
+    {
+      "inputs": [],
+      "name": "contractURI",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "symbol",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+  
+==== END OF FILE: scripts\nftContractABI.json ====
+
+==== START OF FILE: scripts\tokenLogicABI.json ====
+[{"inputs":[{"internalType":"address","name":"_settings","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":false,"internalType":"uint256","name":"price","type":"uint256"}],"name":"Bid","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":false,"internalType":"uint256","name":"shares","type":"uint256"}],"name":"Cash","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":false,"internalType":"uint256","name":"price","type":"uint256"}],"name":"PriceUpdate","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"redeemer","type":"address"}],"name":"Redeem","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":false,"internalType":"uint256","name":"price","type":"uint256"}],"name":"Start","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":false,"internalType":"uint256","name":"price","type":"uint256"}],"name":"Won","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"auctionEnd","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"auctionLength","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"auctionState","outputs":[{"internalType":"enum TokenVault.State","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"bid","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[],"name":"cash","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"claimFees","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"curator","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"subtractedValue","type":"uint256"}],"name":"decreaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"end","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"fee","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"id","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"addedValue","type":"uint256"}],"name":"increaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"_curator","type":"address"},{"internalType":"address","name":"_token","type":"address"},{"internalType":"uint256","name":"_id","type":"uint256"},{"internalType":"uint256","name":"_supply","type":"uint256"},{"internalType":"uint256","name":"_listPrice","type":"uint256"},{"internalType":"uint256","name":"_fee","type":"uint256"},{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"}],"name":"initialize","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"_curator","type":"address"}],"name":"kickCurator","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"lastClaimed","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"livePrice","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"address","name":"","type":"address"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"bytes","name":"","type":"bytes"}],"name":"onERC721Received","outputs":[{"internalType":"bytes4","name":"","type":"bytes4"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"redeem","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"_user","type":"address"}],"name":"removeReserve","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"reservePrice","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"reserveTotal","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"settings","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"start","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"token","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"sender","type":"address"},{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"_length","type":"uint256"}],"name":"updateAuctionLength","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"_curator","type":"address"}],"name":"updateCurator","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"_fee","type":"uint256"}],"name":"updateFee","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"_new","type":"uint256"}],"name":"updateUserPrice","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"userPrices","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"vaultClosed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"votingTokens","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"weth","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"winning","outputs":[{"internalType":"address payable","name":"","type":"address"}],"stateMutability":"view","type":"function"}]
+==== END OF FILE: scripts\tokenLogicABI.json ====
+
+==== START OF FILE: server.js ====
+const express = require('express');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const cors = require('cors');
+const { ethers } = require('ethers');
+require('dotenv').config();
+
+const app = express();
+const port = process.env.PORT || 3001;
+const apiKey = process.env.ETHERSCAN_API_KEY;
+const alchemyUrl = process.env.ALCHEMY_URL;
+
+// Enable CORS for all routes
+app.use(cors());
+
+// Load the ABI from the tokenLogicABI.json file
+const abi = JSON.parse(fs.readFileSync('./scripts/tokenLogicABI.json', 'utf8'));
+const nftAbi = JSON.parse(fs.readFileSync('./scripts/nftContractABI.json', 'utf8'));
+
+// Function to load contract addresses from a text file
+function loadContractsFromFile(filePath) {
+    const fileContents = fs.readFileSync(path.resolve(filePath), 'utf8');
+    const contractAddresses = fileContents.split('\n').map(line => line.trim()).filter(line => line !== '');
+    return contractAddresses;
+}
+
+// Function to fetch metadata from a contract
+async function fetchFNFTMetadata(seqid, contractAddress) {
+    const provider = new ethers.JsonRpcProvider(alchemyUrl);
+    const contract = new ethers.Contract(contractAddress, abi, provider);
+
+    try {
+        const tokenId = await contract.id();
+        const nftContractAddress = await contract.token();
+        const name = await contract.name();
+        const symbol = await contract.symbol();
+
+        const nftContract = new ethers.Contract(nftContractAddress, nftAbi, provider);
+        const contractUri = await nftContract.contractURI();
+
+        const metadataResponse = await axios.get(contractUri);
+        const ipfsUrl = metadataResponse.data.image;
+
+        const localImage = `./src/images/${symbol}.webp`;
+        const localVideo = `./src/NFT-videos/${symbol}.mp4`;
+
+        return {
+            seqid,
+            id: tokenId.toString(),
+            name,
+            symbol,
+            tokenContractAddress: contractAddress,
+            nftContractAddress,
+            ipfsUrl,
+            localImage,
+            localVideo,
+        };
+    } catch (error) {
+        console.error('Error fetching F-NFT metadata:', error);
+        return null;
+    }
+}
+
+// Load contract addresses from the txt file and fetch metadata for each
+async function loadContractData() {
+    const contractAddresses = loadContractsFromFile('./fnftContracts.txt');
+    const metadataArray = [];
+
+    for (let i = 0; i < contractAddresses.length; i++) {
+        const address = contractAddresses[i];
+        const metadata = await fetchFNFTMetadata(i + 1, address);
+        if (metadata) {
+            metadataArray.push(metadata);
+        }
+    }
+
+    return metadataArray;
+}
+
+app.get('/', (req, res) => {
+    res.send('Server is running. Go to /ethprice to see the ETH price.');
+});
+
+app.get('/ethprice', async (req, res) => {
+    try {
+        const response = await axios.get('https://api.etherscan.io/api', {
+            params: {
+                module: 'stats',
+                action: 'ethprice',
+                apikey: apiKey,
+            },
+        });
+
+        if (response.data.status === '1') {
+            const ethPrice = response.data.result.ethusd;
+            res.json({ price: parseFloat(ethPrice) });
+        } else {
+            console.error('Error fetching ETH price:', response.data.message);
+            res.status(500).json({ error: 'Failed to fetch ETH price' });
+        }
+    } catch (error) {
+        console.error('Error fetching ETH price:', error);
+        res.status(500).json({ error: 'Failed to fetch ETH price' });
+    }
+});
+
+app.get('/fnftdata', async (req, res) => {
+    try {
+        const metadataList = await loadContractData();
+        res.json(metadataList);
+    } catch (error) {
+        console.error('Error fetching F-NFT data:', error);
+        res.status(500).json({ error: 'Failed to fetch F-NFT data' });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+});
+
+==== END OF FILE: server.js ====
+
+==== START OF FILE: tests\testFetchId.js ====
+const { ethers } = require('ethers');
+require('dotenv').config();
+
+// Load the ABI from the tokenLogicABI.json file
+const fs = require('fs');
+const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
+const abi = JSON.parse(fs.readFileSync('./tokenLogicABI.json', 'utf8'));
+
+async function testFetchId(contractAddress) {
+    const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
+    const contract = new ethers.Contract(contractAddress, abi, provider);
+
+    try {
+        // Fetch the token ID from the contract
+        const tokenId = await contract.id();
+        console.log(`Token ID for ${contractAddress}:`, tokenId.toString());
+    } catch (error) {
+        console.error("Error fetching token ID:", error);
+    }
+}
+
+// Replace with the contract address you want to test
+const contractAddress = '0x9FEC9c8315dA365a301F9Fe4DedF446191B3a21e'; // Example address
+
+testFetchId(contractAddress);
+
+==== END OF FILE: tests\testFetchId.js ====
+
+==== START OF FILE: tests\testFetchMetadata.js ====
+const fetchFNFTMetadata = require('../scripts/FetchMetadata');
+const { ethers } = require('ethers');
+const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
+
+// Replace with your actual F-NFT contract address
+const fnftContractAddress = '0x9FEC9c8315dA365a301F9Fe4DedF446191B3a21e';
+
+fetchFNFTMetadata(fnftContractAddress)
+    .then(metadata => {
+        console.log('Fetched Metadata:', metadata);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+
+==== END OF FILE: tests\testFetchMetadata.js ====
