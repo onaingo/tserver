@@ -3,7 +3,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-const { ethers } = require('ethers');
+const fetchFNFTMetadata = require('./scripts/FetchMetadata');  // Import the fetchFNFTMetadata function
+const fetchVaultId = require('./scripts/fetchVaultId');  // Import the fetchVaultId function
 require('dotenv').config();
 
 const app = express();
@@ -13,10 +14,6 @@ const alchemyUrl = process.env.ALCHEMY_URL;
 
 // Enable CORS for all routes
 app.use(cors());
-
-// Load the ABI from the tokenLogicABI.json file
-const abi = JSON.parse(fs.readFileSync('./scripts/tokenLogicABI.json', 'utf8'));
-const nftAbi = JSON.parse(fs.readFileSync('./scripts/nftContractABI.json', 'utf8'));
 
 // Function to load contract addresses from a text file
 function loadContractsFromFile(filePath) {
@@ -42,43 +39,6 @@ async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
     }
 }
 
-// Function to fetch metadata from a contract
-async function fetchFNFTMetadata(seqid, contractAddress) {
-    const provider = new ethers.JsonRpcProvider(alchemyUrl);
-    const contract = new ethers.Contract(contractAddress, abi, provider);
-
-    try {
-        const tokenId = await contract.id();
-        const nftContractAddress = await contract.token();
-        const name = await contract.name();
-        const symbol = await contract.symbol();
-
-        const nftContract = new ethers.Contract(nftContractAddress, nftAbi, provider);
-        const contractUri = await nftContract.contractURI();
-
-        const metadataResponse = await fetchWithRetry(contractUri, {});
-        const ipfsUrl = metadataResponse.data.image;
-
-        const localImage = `./src/images/${symbol}.webp`;
-        const localVideo = `./src/NFT-videos/${symbol}.mp4`;
-
-        return {
-            seqid,
-            id: tokenId.toString(),
-            name,
-            symbol,
-            tokenContractAddress: contractAddress,
-            nftContractAddress,
-            ipfsUrl,
-            localImage,
-            localVideo,
-        };
-    } catch (error) {
-        console.error('Error fetching F-NFT metadata:', error);
-        return null;
-    }
-}
-
 // Load contract addresses from the txt file and fetch metadata for each
 async function loadContractData() {
     const contractAddresses = loadContractsFromFile('./fnftContracts.txt');
@@ -86,9 +46,9 @@ async function loadContractData() {
 
     for (let i = 0; i < contractAddresses.length; i++) {
         const address = contractAddresses[i];
-        const metadata = await fetchFNFTMetadata(i + 1, address);
+        const metadata = await fetchFNFTMetadata(address);  // Use the imported function
         if (metadata) {
-            metadataArray.push(metadata);
+            metadataArray.push({ seqid: i + 1, ...metadata });  // Add seqid to the metadata
         }
     }
 
@@ -130,6 +90,24 @@ app.get('/fnftdata', async (req, res) => {
         console.error('Error fetching F-NFT data:', error.message);
         res.status(500).json({ error: 'Failed to fetch F-NFT data' });
     }
+});
+
+// New endpoint to fetch the vaultId for a given contract address
+app.get('/vaultid', async (req, res) => {
+    const contractAddresses = loadContractsFromFile('./fnftContracts.txt');
+
+    const results = [];
+
+    for (const address of contractAddresses) {
+        try {
+            const vaultId = await fetchVaultId(address);
+            results.push({ address, vaultId });
+        } catch (error) {
+            results.push({ address, error: 'Failed to fetch vault ID' });
+        }
+    }
+
+    res.json(results);
 });
 
 app.listen(port, () => {
