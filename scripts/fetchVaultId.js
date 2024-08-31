@@ -1,38 +1,28 @@
-const { ethers } = require('ethers');
+const axios = require('axios');
 require('dotenv').config();
 
-// Mint event topic for the vaultId
-const MINT_EVENT_TOPIC = '0xf9c32fbc56ff04f32a233ebc26e388564223745e28abd8d0781dd906537f563e';
-
-async function fetchVaultId(contractAddress) {
+async function getCreationTransaction(contractAddress) {
     try {
-        const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
+        const apiKey = process.env.ETHERSCAN_API_KEY;
+        const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${contractAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`;
 
-        // Fetch logs related to the contract address
-        const logs = await provider.getLogs({
-            fromBlock: 'earliest',
-            toBlock: 'latest',
-            address: contractAddress,
-            topics: [MINT_EVENT_TOPIC]
-        });
+        // Fetch the transaction list for the contract address
+        const response = await axios.get(url);
+        const transactions = response.data.result;
 
-        if (logs.length === 0) {
-            console.log(`No Mint event found for contract: ${contractAddress}`);
+        // Find the transaction where the contract was created (where `to` is null)
+        const creationTx = transactions.find(tx => tx.to === null || tx.to === '');
+
+        if (!creationTx) {
+            console.error(`No creation transaction found for contract: ${contractAddress}`);
             return null;
         }
 
-        // Decode the first log data to get the vaultId
-        const decodedLog = ethers.utils.defaultAbiCoder.decode(
-            ['address', 'uint256', 'uint256', 'address', 'uint256'],
-            logs[0].data
-        );
-        const vaultId = decodedLog[4].toString(); // vaultId is the 5th element in the log data
-
-        return vaultId;
+        return creationTx.hash;
     } catch (error) {
-        console.error(`Error fetching vaultId for contract ${contractAddress}:`, error);
+        console.error(`Error fetching creation transaction for contract ${contractAddress}:`, error);
         return null;
     }
 }
 
-module.exports = fetchVaultId;
+module.exports = getCreationTransaction;
