@@ -25,6 +25,23 @@ function loadContractsFromFile(filePath) {
     return contractAddresses;
 }
 
+// Custom retry function
+async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await axios.get(url, options);
+            return response;
+        } catch (error) {
+            console.error(`Attempt ${i + 1} failed: ${error.message}`);
+            if (i < retries - 1) {
+                await new Promise(res => setTimeout(res, delay));
+            } else {
+                throw error; // If all retries fail, throw the error
+            }
+        }
+    }
+}
+
 // Function to fetch metadata from a contract
 async function fetchFNFTMetadata(seqid, contractAddress) {
     const provider = new ethers.JsonRpcProvider(alchemyUrl);
@@ -39,7 +56,7 @@ async function fetchFNFTMetadata(seqid, contractAddress) {
         const nftContract = new ethers.Contract(nftContractAddress, nftAbi, provider);
         const contractUri = await nftContract.contractURI();
 
-        const metadataResponse = await axios.get(contractUri);
+        const metadataResponse = await fetchWithRetry(contractUri, {});
         const ipfsUrl = metadataResponse.data.image;
 
         const localImage = `./src/images/${symbol}.webp`;
@@ -84,7 +101,7 @@ app.get('/', (req, res) => {
 
 app.get('/ethprice', async (req, res) => {
     try {
-        const response = await axios.get('https://api.etherscan.io/api', {
+        const response = await fetchWithRetry('https://api.etherscan.io/api', {
             params: {
                 module: 'stats',
                 action: 'ethprice',
@@ -100,8 +117,8 @@ app.get('/ethprice', async (req, res) => {
             res.status(500).json({ error: 'Failed to fetch ETH price' });
         }
     } catch (error) {
-        console.error('Error fetching ETH price:', error);
-        res.status(500).json({ error: 'Failed to fetch ETH price' });
+        console.error('Error fetching ETH price after retries:', error.message);
+        res.status(500).json({ error: 'Failed to fetch ETH price after retries' });
     }
 });
 
@@ -110,7 +127,7 @@ app.get('/fnftdata', async (req, res) => {
         const metadataList = await loadContractData();
         res.json(metadataList);
     } catch (error) {
-        console.error('Error fetching F-NFT data:', error);
+        console.error('Error fetching F-NFT data:', error.message);
         res.status(500).json({ error: 'Failed to fetch F-NFT data' });
     }
 });
