@@ -8,7 +8,7 @@ const tokenLogicAbi = JSON.parse(fs.readFileSync('./scripts/tokenLogicABI.json',
 const nftContractAbi = JSON.parse(fs.readFileSync('./scripts/nftContractABI.json', 'utf8'));
 
 async function fetchFNFTMetadata(contractAddress) {
-    const provider = new ethers.providers.WebSocketProvider(process.env.ALCHEMY_URL);
+    const provider = new ethers.JsonRpcProvider(process.env.ALCHEMY_URL);
     const tokenContract = new ethers.Contract(contractAddress, tokenLogicAbi, provider);
 
     try {
